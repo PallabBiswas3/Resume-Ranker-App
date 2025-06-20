@@ -1,5 +1,6 @@
 streamlit
 pymupdf
-scikit-learn
-pandas
 pytesseract
+pdf2image
+pandas
+scikit-learn
