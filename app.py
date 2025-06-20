@@ -1,20 +1,35 @@
 import streamlit as st
 import fitz  # PyMuPDF
+import pytesseract
+from pdf2image import convert_from_bytes
 import re
 import pandas as pd
-from io import BytesIO
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import tempfile
 
-# ---------- TEXT EXTRACTION & SECTIONING ----------
+# ---------- TEXT EXTRACTION: Default + OCR fallback ----------
 def extract_text_from_pdf(file):
-    doc = fitz.open(stream=file.read(), filetype="pdf")
+    file.seek(0)
+    file_bytes = file.read()
+
+    # Step 1: Try normal text extraction using PyMuPDF
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
     text = ""
     for page in doc:
         text += page.get_text()
+
+    # Step 2: Use OCR only if extracted text is too short
+    if len(text.strip()) < 100:
+        st.warning(f"⚠️ Low text detected in {file.name}, using OCR.")
+        images = convert_from_bytes(file_bytes)
+        ocr_text = ""
+        for image in images:
+            ocr_text += pytesseract.image_to_string(image)
+        return ocr_text
+
     return text
 
+# ---------- SECTION EXTRACTION ----------
 def extract_resume_sections(text):
     lines = text.split('\n')
     summary, experience, education, certifications, skills = [], [], [], [], []
@@ -76,14 +91,14 @@ def rank_resumes(jd_text, resume_data):
     return ranked
 
 # ---------- STREAMLIT UI ----------
-st.title("AI Resume Ranker")
+st.title("📄 AI Resume Ranker (Smart OCR Fallback)")
 
-jd_file = st.file_uploader("Upload Job Description (PDF)", type=["pdf"])
-resume_files = st.file_uploader("Upload Multiple Resumes (PDF)", type=["pdf"], accept_multiple_files=True)
+jd_file = st.file_uploader("📥 Upload Job Description (PDF)", type=["pdf"])
+resume_files = st.file_uploader("📥 Upload Multiple Resumes (PDF)", type=["pdf"], accept_multiple_files=True)
 
-if st.button("Rank Resumes"):
+if st.button("🚀 Rank Resumes"):
     if not jd_file or not resume_files:
-        st.warning("Please upload both job description and resumes.")
+        st.warning("Please upload both a job description and at least one resume.")
     else:
         jd_text = extract_text_from_pdf(jd_file)
 
@@ -95,11 +110,11 @@ if st.button("Rank Resumes"):
 
         ranked_resumes = rank_resumes(jd_text, resume_data)
 
-        st.subheader("Ranked Resumes")
+        st.subheader("🏆 Ranked Resumes")
         for i, (name, score) in enumerate(ranked_resumes, 1):
             st.write(f"**{i}. {name}** — Score: {score:.4f}")
 
         # Downloadable CSV
         df_out = pd.DataFrame(ranked_resumes, columns=["Resume Name", "Match Score"])
         csv = df_out.to_csv(index=False).encode("utf-8")
-        st.download_button("Download Ranking as CSV", csv, "ranked_resumes.csv", "text/csv")
+        st.download_button("📥 Download Results as CSV", csv, "ranked_resumes.csv", "text/csv")
