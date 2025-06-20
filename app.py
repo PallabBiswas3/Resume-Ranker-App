@@ -1,13 +1,20 @@
 import streamlit as st
 import fitz  # PyMuPDF
-import pytesseract
-from pdf2image import convert_from_bytes
 import re
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import os
 
-# ---------- TEXT EXTRACTION: Default + OCR fallback ----------
+# ---------- OCR Environment Setup ----------
+try:
+    import pytesseract
+    from pdf2image import convert_from_bytes
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+
+# ---------- TEXT EXTRACTION FUNCTION ----------
 def extract_text_from_pdf(file):
     file.seek(0)
     file_bytes = file.read()
@@ -18,18 +25,22 @@ def extract_text_from_pdf(file):
     for page in doc:
         text += page.get_text()
 
-    # Step 2: Use OCR only if extracted text is too short
+    # Step 2: Fallback to OCR if text is too short and OCR is available
     if len(text.strip()) < 100:
-        st.warning(f"⚠️ Low text detected in {file.name}, using OCR.")
-        images = convert_from_bytes(file_bytes)
-        ocr_text = ""
-        for image in images:
-            ocr_text += pytesseract.image_to_string(image)
-        return ocr_text
+        if OCR_AVAILABLE:
+            st.warning(f"⚠️ Low text in {file.name}. Using OCR fallback.")
+            images = convert_from_bytes(file_bytes)
+            ocr_text = ""
+            for image in images:
+                ocr_text += pytesseract.image_to_string(image)
+            return ocr_text
+        else:
+            st.warning(f"⚠️ Low text in {file.name}, and OCR is not available on this server.")
+            return ""
 
     return text
 
-# ---------- SECTION EXTRACTION ----------
+# ---------- RESUME SECTION EXTRACTION ----------
 def extract_resume_sections(text):
     lines = text.split('\n')
     summary, experience, education, certifications, skills = [], [], [], [], []
@@ -91,7 +102,10 @@ def rank_resumes(jd_text, resume_data):
     return ranked
 
 # ---------- STREAMLIT UI ----------
+st.set_page_config(page_title="Resume Ranker", page_icon="📄")
 st.title("📄 AI Resume Ranker (Smart OCR Fallback)")
+
+st.info("Upload a Job Description PDF and multiple Resume PDFs to rank them based on content relevance. Scanned PDFs will be OCR-processed only if supported by this server.")
 
 jd_file = st.file_uploader("📥 Upload Job Description (PDF)", type=["pdf"])
 resume_files = st.file_uploader("📥 Upload Multiple Resumes (PDF)", type=["pdf"], accept_multiple_files=True)
@@ -101,20 +115,28 @@ if st.button("🚀 Rank Resumes"):
         st.warning("Please upload both a job description and at least one resume.")
     else:
         jd_text = extract_text_from_pdf(jd_file)
+        if not jd_text.strip():
+            st.error("❌ Job Description PDF could not be read. Try another file.")
+        else:
+            resume_data = []
+            for file in resume_files:
+                text = extract_text_from_pdf(file)
+                if not text.strip():
+                    st.warning(f"❌ Skipping {file.name} — no readable content found.")
+                    continue
+                sections = extract_resume_sections(text)
+                resume_data.append((file.name, sections))
 
-        resume_data = []
-        for file in resume_files:
-            text = extract_text_from_pdf(file)
-            sections = extract_resume_sections(text)
-            resume_data.append((file.name, sections))
+            if not resume_data:
+                st.error("❌ No valid resumes to rank.")
+            else:
+                ranked_resumes = rank_resumes(jd_text, resume_data)
 
-        ranked_resumes = rank_resumes(jd_text, resume_data)
+                st.subheader("🏆 Ranked Resumes")
+                for i, (name, score) in enumerate(ranked_resumes, 1):
+                    st.write(f"**{i}. {name}** — Score: {score:.4f}")
 
-        st.subheader("🏆 Ranked Resumes")
-        for i, (name, score) in enumerate(ranked_resumes, 1):
-            st.write(f"**{i}. {name}** — Score: {score:.4f}")
-
-        # Downloadable CSV
-        df_out = pd.DataFrame(ranked_resumes, columns=["Resume Name", "Match Score"])
-        csv = df_out.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Download Results as CSV", csv, "ranked_resumes.csv", "text/csv")
+                # CSV Download
+                df_out = pd.DataFrame(ranked_resumes, columns=["Resume Name", "Match Score"])
+                csv = df_out.to_csv(index=False).encode("utf-8")
+                st.download_button("📥 Download Results as CSV", csv, "ranked_resumes.csv", "text/csv")
