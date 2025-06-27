@@ -4,17 +4,8 @@ import re
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-import os
 
-# ---------- OCR Environment Setup ----------
-try:
-    import pytesseract
-    from pdf2image import convert_from_bytes
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
-
-# ---------- TEXT EXTRACTION FUNCTION ----------
+# ---------- TEXT EXTRACTION FUNCTION (NO OCR) ----------
 def extract_text_from_pdf(file):
     file.seek(0)
     file_bytes = file.read()
@@ -25,18 +16,10 @@ def extract_text_from_pdf(file):
     for page in doc:
         text += page.get_text()
 
-    # Step 2: Fallback to OCR if text is too short and OCR is available
+    # Step 2: Reject if it's image-based (very little extractable text)
     if len(text.strip()) < 100:
-        if OCR_AVAILABLE:
-            st.warning(f"⚠️ Low text in {file.name}. Using OCR fallback.")
-            images = convert_from_bytes(file_bytes)
-            ocr_text = ""
-            for image in images:
-                ocr_text += pytesseract.image_to_string(image)
-            return ocr_text
-        else:
-            st.warning(f"⚠️ Low text in {file.name}, and OCR is not available on this server.")
-            return ""
+        st.warning(f"⚠️ {file.name} appears to be an image-based PDF. No readable text found.")
+        return ""
 
     return text
 
@@ -103,9 +86,9 @@ def rank_resumes(jd_text, resume_data):
 
 # ---------- STREAMLIT UI ----------
 st.set_page_config(page_title="Resume Ranker", page_icon="📄")
-st.title("📄 AI Resume Ranker (Smart OCR Fallback)")
+st.title("📄 AI Resume Ranker")
 
-st.info("Upload a Job Description PDF and multiple Resume PDFs to rank them based on content relevance. Scanned PDFs will be OCR-processed only if supported by this server.")
+st.info("Upload a Job Description PDF and multiple Resume PDFs to rank them based on content relevance. Image-only resumes will be skipped.")
 
 jd_file = st.file_uploader("📥 Upload Job Description (PDF)", type=["pdf"])
 resume_files = st.file_uploader("📥 Upload Multiple Resumes (PDF)", type=["pdf"], accept_multiple_files=True)
