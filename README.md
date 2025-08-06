@@ -110,10 +110,3 @@ Contributions, issues, and feature requests are welcome! Feel free to check \[is
 
 ---
 
-## 📝 License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
----
-
-*Built with ❤️ by [Your Name](https://github.com/yourusername)*
